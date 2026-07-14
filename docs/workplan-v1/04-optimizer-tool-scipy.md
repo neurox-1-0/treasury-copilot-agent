@@ -78,11 +78,16 @@ Content-Type: application/json
   "asOfDate": "2026-07-13",
   "nextFixedObligationDate": "2026-07-28",
   "nextFixedObligationAmount": "4200000.00",
+  "costOfDebt": 0.1350,
   "instruments": [
-    { "type": "CALL_DEPOSIT", "termDays": 1, "rate": 0.085 },
-    { "type": "FIXED_DEPOSIT", "termDays": 14, "rate": 0.10 },
-    { "type": "FIXED_DEPOSIT", "termDays": 30, "rate": 0.11 },
-    { "type": "FIXED_DEPOSIT", "termDays": 90, "rate": 0.12 }
+    { "bank": "SAMPATH", "type": "CALL_DEPOSIT", "termDays": 1,   "rate": 0.085 },
+    { "bank": "SAMPATH", "type": "FIXED_DEPOSIT", "termDays": 14, "rate": 0.100 },
+    { "bank": "HNB",     "type": "FIXED_DEPOSIT", "termDays": 14, "rate": 0.102 },
+    { "bank": "COMBANK", "type": "FIXED_DEPOSIT", "termDays": 14, "rate": 0.100 },
+    { "bank": "SAMPATH", "type": "FIXED_DEPOSIT", "termDays": 30, "rate": 0.110 },
+    { "bank": "HNB",     "type": "FIXED_DEPOSIT", "termDays": 30, "rate": 0.1125 },
+    { "bank": "SAMPATH", "type": "FIXED_DEPOSIT", "termDays": 90, "rate": 0.120 },
+    { "bank": "HNB",     "type": "FIXED_DEPOSIT", "termDays": 90, "rate": 0.121 }
   ]
 }
 ```
@@ -96,7 +101,8 @@ Content-Type: application/json
 | `currentTotalBalance` | Total available balance across all accounts |
 | `nextFixedObligationDate` | Earliest date a FIXED-priority payment is due |
 | `nextFixedObligationAmount` | Amount required for that obligation |
-| `instruments` | List from bank mock's `/rates/deposits` |
+| `costOfDebt` | Effective rate on the company's floating OD facility (`AWPLR + spread`), sourced from Component 9 + mock bank loan endpoint. This is the **hurdle rate** — any instrument yielding less than this should be flagged as sub-optimal vs. paying down the OD. `null` if no floating rate facility exists. |
+| `instruments` | Cross-bank instrument list assembled by the agent's Reason node from Component 9 market data (`bestAvailableRates`) merged with mock bank `/rates/deposits`. Each entry must include `bank`. |
 
 ---
 
@@ -106,25 +112,38 @@ Content-Type: application/json
 {
   "recommendedAllocation": [
     {
+      "bank": "HNB",
+      "instrument": "FIXED_DEPOSIT",
+      "termDays": 14,
+      "amount": "8000000.00",
+      "maturityDate": "2026-07-27",
+      "expectedYield": "31232.88",
+      "yieldRate": 0.102
+    }
+  ],
+  "alternativesConsidered": [
+    {
+      "bank": "SAMPATH",
       "instrument": "FIXED_DEPOSIT",
       "termDays": 14,
       "amount": "8000000.00",
       "maturityDate": "2026-07-27",
       "expectedYield": "30684.93",
-      "yieldRate": 0.10
-    }
-  ],
-  "alternativesConsidered": [
+      "yieldRate": 0.10,
+      "rejectedReason": "HNB offers 10.2% vs Sampath's 10.0% for the same 14-day term. HNB recommended."
+    },
     {
+      "bank": "HNB",
       "instrument": "FIXED_DEPOSIT",
       "termDays": 30,
       "amount": "8000000.00",
       "maturityDate": "2026-08-12",
-      "expectedYield": "72329.00",
-      "yieldRate": 0.11,
+      "expectedYield": "73972.60",
+      "yieldRate": 0.1125,
       "rejectedReason": "Maturity (2026-08-12) falls after next fixed obligation date (2026-07-28). Deploying full surplus into this instrument would leave insufficient liquid funds to cover the LKR 4,200,000 payroll obligation on 2026-07-28."
     },
     {
+      "bank": "SAMPATH",
       "instrument": "FIXED_DEPOSIT",
       "termDays": 90,
       "amount": "8000000.00",
@@ -134,21 +153,30 @@ Content-Type: application/json
       "rejectedReason": "Same maturity-date constraint as 30-day FD. Additionally, 90-day lock-up creates unacceptable illiquidity across 3 future payroll and tax cycles."
     },
     {
+      "bank": "SAMPATH",
       "instrument": "CALL_DEPOSIT",
       "termDays": 1,
       "amount": "8000000.00",
       "maturityDate": "2026-07-14",
       "expectedYield": "1863.01",
       "yieldRate": 0.085,
-      "rejectedReason": "Feasible but sub-optimal. Call deposit at 8.5% yields significantly less than 14-day FD at 10% while providing no meaningfully greater liquidity (both mature well before 2026-07-28)."
+      "rejectedReason": "Feasible but sub-optimal. Call deposit at 8.5% yields significantly less than 14-day FD at 10.2% while providing no meaningfully greater liquidity."
     }
   ],
   "constraintsSatisfied": true,
   "infeasibilityReason": null,
+  "costOfDebtHurdleBreached": true,
+  "hurdleNote": "All available instruments yield below the effective OD rate of 13.5%. Recommend considering partial OD repayment instead of FD placement. Awaiting human approval.",
   "solverUsed": "SCIPY_LINPROG",
   "bufferAfterDeployment": "20000000.00"
 }
 ```
+
+> **`costOfDebtHurdleBreached`**: Set to `true` when the recommended instrument's
+> `yieldRate` is below `costOfDebt`. This signals to the agent's Decide node to
+> include an OD-repayment alternative in `alternativesConsidered` alongside the
+> FD recommendation, with the rationale that repaying the OD at 13.5% is equivalent
+> to earning 13.5% risk-free. The human approver sees both options.
 
 ---
 
@@ -239,6 +267,8 @@ uses to explain its decision.
 | `nextFixedObligationDate` is null / no obligations | No maturity constraint — choose highest-yield instrument |
 | `instruments` list is empty | `400 {"error": "NO_INSTRUMENTS_PROVIDED"}` |
 | LP infeasible (scipy returns failure status) | Fall back to greedy; log LP failure in response |
+| Best yield < `costOfDebt` | Set `costOfDebtHurdleBreached=true`, add OD-repayment to `alternativesConsidered` with explanation |
+| `costOfDebt` is null | Skip hurdle check; set `costOfDebtHurdleBreached=false` |
 
 ---
 
@@ -251,7 +281,11 @@ uses to explain its decision.
 async def test_optimize_returns_correct_schema():
     # POST /optimize with valid body
     # Assert response has: recommendedAllocation, alternativesConsidered,
-    #   constraintsSatisfied, solverUsed, bufferAfterDeployment
+    #   constraintsSatisfied, solverUsed, bufferAfterDeployment,
+    #   costOfDebtHurdleBreached
+
+async def test_recommended_allocation_has_bank_field():
+    # Assert each item in recommendedAllocation has "bank" field
 
 async def test_recommended_allocation_has_maturity_date():
     # Assert each item in recommendedAllocation has maturityDate
@@ -316,6 +350,9 @@ async def test_greedy_fallback_produces_valid_output():
 
 async def test_greedy_fallback_respects_maturity_constraint():
     # Even with greedy fallback, unsafe instruments must be rejected
+
+async def test_greedy_fallback_respects_bank_field():
+    # Assert recommended instrument has bank field even in greedy mode
 ```
 
 #### 6. No obligation date (unconstrained)
@@ -323,6 +360,35 @@ async def test_greedy_fallback_respects_maturity_constraint():
 async def test_no_obligation_date_picks_highest_yield():
     # POST with nextFixedObligationDate == null
     # Assert recommended instrument has highest rate in instruments list
+```
+
+#### 7. Cross-bank selection
+```python
+async def test_cross_bank_higher_yield_selected():
+    # Provide: SAMPATH 14d at 10.0%, HNB 14d at 10.2% (both safe)
+    # Assert recommendedAllocation[0].bank == "HNB"
+    # Assert recommendedAllocation[0].yieldRate == 0.102
+
+async def test_same_rate_different_banks_selects_first():
+    # Provide: SAMPATH 14d at 10.0%, COMBANK 14d at 10.0%
+    # Assert either bank is selected (deterministic tie-break: first in list)
+```
+
+#### 8. Cost of debt hurdle
+```python
+async def test_hurdle_breached_when_best_yield_below_cost_of_debt():
+    # POST with costOfDebt=0.135, instruments all yielding < 0.135
+    # Assert costOfDebtHurdleBreached == true
+    # Assert hurdleNote is non-empty string
+
+async def test_hurdle_not_breached_when_instrument_beats_cost_of_debt():
+    # POST with costOfDebt=0.09, best instrument at 0.12
+    # Assert costOfDebtHurdleBreached == false
+
+async def test_null_cost_of_debt_skips_hurdle_check():
+    # POST with costOfDebt == null
+    # Assert costOfDebtHurdleBreached == false
+    # Assert hurdleNote == null
 ```
 
 ### Running Tests

@@ -64,6 +64,7 @@ uvicorn[standard]>=0.29.0
 pydantic>=2.7.0
 numpy>=1.26.0
 httpx>=0.27.0
+pandas>=2.2.0                  # for feature assembly
 pytest>=8.2.0
 pytest-anyio>=0.0.0
 ```
@@ -109,10 +110,14 @@ Content-Type: application/json
 }
 ```
 
-The service internally calls the ERP mock's Perceive endpoints to assemble the
-historical series (or uses pre-loaded data if the ERP is unavailable — see
-Failure Modes). The caller (agent's Reason node) does not need to supply raw
-time series data — it just supplies the company code and horizon.
+The service internally calls:
+1. The ERP mock's Perceive endpoints to assemble the historical cash flow series.
+2. The Market Data Service (Component 9) `GET /rates` to get the current CBSL and
+   bank rate snapshot, which is appended as exogenous features to the input vector.
+
+(Or uses pre-loaded data if either service is unavailable — see Failure Modes.)
+The caller (agent's Reason node) does not need to supply raw time series data —
+it just supplies the company code and horizon.
 
 ---
 
@@ -176,10 +181,10 @@ For the stub: use the formula described in Phase 1 above.
 
 ## LSTM Model Specification (Phase 2)
 
-### Architecture
+### LSTM Architecture
 
 ```
-Input: sequence of 60–90 days of (normalized) net_cash_flow values
+Input: sequence of 60–90 days of feature vectors (see Feature Vector below)
   │
   ▼
 LSTM layer 1: 64 units, return_sequences=True, Dropout(0.2)
@@ -190,6 +195,48 @@ LSTM layer 2: 32 units, Dropout(0.2)
   ▼
 Dense(horizonDays)   ← outputs N values, one per forecast day
 ```
+
+### Feature Vector (per day)
+
+Each time step in the LSTM input is a **5-dimensional feature vector**, not
+just the scalar cash flow. This gives the model regime-awareness it cannot
+derive from cash flow history alone.
+
+| # | Feature | Source | Rationale |
+|---|---|---|---|
+| 1 | `net_cash_flow` | ERP mock historical series | The primary signal to forecast |
+| 2 | `awplr` | Component 9 CBSL cache | Floating loan cost benchmark; high AWPLR periods correlate with tighter liquidity |
+| 3 | `repo_rate` | Component 9 CBSL cache | Risk-free rate proxy; signals monetary policy regime |
+| 4 | `best_fd_rate_90d` | Component 9 `bestAvailableRates` | Best available yield; management tends to lock longer when rates are high |
+| 5 | `usd_lkr_mid` | Mock bank `/rates/forex` | FX exposure; sharp LKR depreciation increases import-side outflows |
+
+For the **stub forecaster**, features 2–5 are ignored (the stub uses the trailing
+average of `net_cash_flow` only). For the LSTM, all 5 features are normalized
+together using `MinMaxScaler` fitted on the training window.
+
+```python
+# data/series_generator.py
+def generate_feature_matrix(
+    cash_flow_series: list[float],
+    awplr_series: list[float],
+    repo_rate_series: list[float],
+    best_fd_90d_series: list[float],
+    usd_lkr_series: list[float],
+) -> np.ndarray:
+    """Shape: (n_days, 5). All series must be same length."""
+    return np.column_stack([
+        cash_flow_series,
+        awplr_series,
+        repo_rate_series,
+        best_fd_90d_series,
+        usd_lkr_series,
+    ])
+```
+
+For historical data used in training, CBSL rates and FX rates are read from the
+cached `cache/rates_cache.json` in Component 9. For periods where only a single
+value is available (CBSL data updates weekly), the most recent value is **forward-filled**
+across days in that week.
 
 ### Monte Carlo Dropout for Confidence
 
@@ -215,6 +262,18 @@ The series must be:
   weekends) to give the LSTM a learnable signal.
 - **At least 90 days**: 60-day input window + 30-day headroom.
 
+For exogenous features (AWPLR, Repo Rate, best FD rate, USD/LKR), the training
+data generator synthesises plausible historical rate series:
+- AWPLR: starts at 12.5%, trends down to 12.0% over 90 days (mirrors a
+  gradual easing scenario).
+- Repo Rate: starts at 9.0%, steps down to 8.5% at day 45 (policy change event).
+- Best FD 90d: follows Repo Rate with a lag (correlation = 0.8, lag = 7 days).
+- USD/LKR mid: starts at 305, random walk with σ = 1.5/day.
+
+These are seeded synthetic values — they are sufficient to teach the LSTM the
+correlation structure. The model will refine against real data when connected
+to Component 9 in production.
+
 Pre-trained weights should be saved to `model/weights/lstm_model.h5` and committed
 to the repo so the service starts without re-training. Training script:
 `python -m model.train` (add a `model/train.py` script for this).
@@ -226,7 +285,8 @@ to the repo so the service starts without re-training. Training script:
 | Failure | Behaviour |
 |---|---|
 | ERP data unavailable for series assembly | Use a cached / pre-seeded local CSV; set `fallbackUsed=true`, add flag `STALE_INPUT_DATA` |
-| LSTM weights missing | Auto-downgrade to stub; set `modelType="STUB_TRAILING_AVERAGE"`, `fallbackUsed=true` |
+| Market Data Service unavailable (Component 9) | Use last-known exogenous feature values from `data/feature_cache.json`; add flag `STALE_EXOGENOUS_FEATURES`. If no cache exists, use hardcoded fallback values (AWPLR=12.0, Repo=8.5, FD90d=0.12, USD/LKR=305.0) and add flag `DEFAULT_EXOGENOUS_FEATURES`. |
+| LSTM weights missing | Auto-downgrade to stub; set `modelType="STUB_TRAILING_AVERAGE"`, `fallbackUsed=true`. Stub ignores exogenous features. |
 | Too few data points (< 30 days) | Return `400 {"error": "INSUFFICIENT_HISTORY", "daysAvailable": N}` |
 | MC Dropout produces all-zero std (degenerate model) | Return `overallConfidenceScore=0.5`, flag `DEGENERATE_MODEL_OUTPUT` |
 

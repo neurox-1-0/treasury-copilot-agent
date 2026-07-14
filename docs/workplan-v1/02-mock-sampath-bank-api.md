@@ -29,7 +29,8 @@ services/bank-mock/
 ├── data/
 │   └── seed.py
 ├── state/
-│   └── account_state.py       ← mutable balance state
+│   ├── account_state.py       ← mutable balance state
+│   └── loan_state.py          ← seeded loan facility records
 ├── tests/
 │   └── test_bank_mock.py
 └── requirements.txt
@@ -171,19 +172,29 @@ to query. Authorised with `Bearer` token.
 Returns current balances. These values reflect real-time mutations from payment
 initiation (not stale seed data).
 
+Modelled on Sampath Dev API: `Acc_InqAccBalance` (available + book) and
+`Acc_InqAvgAccBalance` (average balance for interest calculation).
+
 ```json
 {
   "accountId": "SAMP-0012345678",
   "currency": "LKR",
   "availableBalance": "42500000.00",
   "bookBalance": "42441068.00",
+  "averageBalance": "39850000.00",
+  "averagePeriodDays": 30,
   "asOfTimestamp": "2026-07-13T09:30:00+05:30"
 }
 ```
 
+> **Why `averageBalance`**: Banks calculate Call Deposit interest on average
+> daily balance, not available balance. The SciPy optimizer needs this to
+> compute accurate yield on the Call Deposit account.
+
 ### `GET /accounts/{accountId}/statement`
 
 Transaction history, date-ranged. Query params: `fromDate`, `toDate` (ISO 8601).
+Modelled on Sampath Dev API: `Tran_InqTransactionHistory`.
 
 ```json
 {
@@ -193,6 +204,7 @@ Transaction history, date-ranged. Query params: `fromDate`, `toDate` (ISO 8601).
   "transactions": [
     {
       "transactionId": "TXN-2026070001",
+      "referenceId": null,
       "date": "2026-07-01",
       "amount": "1500000.00",
       "direction": "CREDIT",
@@ -250,20 +262,112 @@ Returns current status of a submitted payment.
 
 ### `GET /rates/deposits`
 
-Short-term instrument rates. Feeds the SciPy optimizer. Static seed data, updated
-manually to reflect realistic LKR rates.
+Sampath-specific short-term instrument rates. Feeds the SciPy optimizer as the
+**Sampath bank entry** in the cross-bank rate comparison. Static seed data;
+updated manually to reflect realistic LKR rates. The Market Data Tool (Component 9)
+fetches HNB and Commercial Bank rates separately via web scraping.
 
 ```json
 {
+  "bank": "SAMPATH",
   "instruments": [
-    { "type": "CALL_DEPOSIT", "termDays": 1, "rate": 0.085 },
-    { "type": "FIXED_DEPOSIT", "termDays": 14, "rate": 0.10 },
-    { "type": "FIXED_DEPOSIT", "termDays": 30, "rate": 0.11 },
-    { "type": "FIXED_DEPOSIT", "termDays": 90, "rate": 0.12 }
+    { "type": "CALL_DEPOSIT", "termDays": 1,   "rate": 0.085 },
+    { "type": "FIXED_DEPOSIT", "termDays": 7,  "rate": 0.095 },
+    { "type": "FIXED_DEPOSIT", "termDays": 14, "rate": 0.100 },
+    { "type": "FIXED_DEPOSIT", "termDays": 30, "rate": 0.110 },
+    { "type": "FIXED_DEPOSIT", "termDays": 90, "rate": 0.120 },
+    { "type": "FIXED_DEPOSIT", "termDays": 180, "rate": 0.125 },
+    { "type": "FIXED_DEPOSIT", "termDays": 365, "rate": 0.130 }
   ],
   "asOfDate": "2026-07-13"
 }
 ```
+
+### `GET /rates/forex` ← **New**
+
+Live dealing forex rates. Modelled on Sampath Dev API: `Forex_GetAllCurrencyData`.
+The Perceive node calls this to value any FX-denominated obligations or receivables
+in LKR when building `TreasuryState`.
+
+```json
+{
+  "asOfTimestamp": "2026-07-13T09:30:00+05:30",
+  "rates": [
+    { "currency": "USD", "buyingRate": "300.50", "sellingRate": "310.25", "midRate": "305.38" },
+    { "currency": "EUR", "buyingRate": "330.00", "sellingRate": "340.50", "midRate": "335.25" },
+    { "currency": "GBP", "buyingRate": "382.00", "sellingRate": "393.75", "midRate": "387.88" },
+    { "currency": "SGD", "buyingRate": "222.00", "sellingRate": "229.50", "midRate": "225.75" }
+  ]
+}
+```
+
+Seed data is static (seeded in `data/seed.py`) but can be overridden via
+`POST /chaos` for FX rate shock testing (e.g. simulate a sudden USD/LKR move).
+
+### `GET /loans/{facilityId}` ← **New**
+
+Loan facility details. Modelled on Sampath Dev API: `Loan_InqFacilityDetails`.
+The Perceive node calls this for each loan in the ERP's loan schedule to get the
+**live outstanding principal and effective rate**, which may differ from the ERP's
+scheduled values. For floating-rate facilities, the effective rate is recomputed
+by the Perceive node using `spread + current AWPLR` (from Component 9).
+
+```
+GET /loans/LN-2024-0087
+```
+
+```json
+{
+  "facilityId": "LN-2024-0087",
+  "facilityType": "WORKING_CAPITAL_OD",
+  "sanctionedAmount": "50000000.00",
+  "outstandingPrincipal": "32500000.00",
+  "interestRate": 0.1350,
+  "rateType": "FLOATING",
+  "benchmarkRate": "AWPLR",
+  "spread": 0.0150,
+  "nextInstallmentDate": "2026-08-01",
+  "nextInstallmentAmount": "1500000.00",
+  "currency": "LKR"
+}
+```
+
+**Seeded loan facilities** (in `state/loan_state.py`):
+- `LN-2024-0087`: Working Capital OD — LKR 50M sanctioned, floating at AWPLR + 150bps.
+- `LN-2025-0012`: Term Loan — LKR 20M, fixed at 13.75%, semi-annual repayments.
+
+Unknown `facilityId` returns `404 {"error": "FACILITY_NOT_FOUND"}`.
+
+### `GET /transactions` ← **New**
+
+Look up a specific transaction by internal reference ID. Modelled on Sampath Dev
+API: `Inq_inquireTranByRefId`. The Report node calls this to confirm a payment
+has settled in the actual transaction ledger — distinct from the payment status
+poll which only checks the payment queue.
+
+```
+GET /transactions?refId=PMT-2026070001
+```
+
+```json
+{
+  "found": true,
+  "transaction": {
+    "transactionId": "TXN-2026070041",
+    "referenceId": "PMT-2026070001",
+    "date": "2026-07-14",
+    "amount": "8000000.00",
+    "direction": "DEBIT",
+    "accountId": "SAMP-0012345678",
+    "description": "SURPLUS_SWEEP — 14-day FD placement per TRP-0042"
+  }
+}
+```
+
+If the payment has not yet settled into the ledger: `{ "found": false, "transaction": null }`.
+
+The mock auto-creates the ledger entry when a payment transitions to `EXECUTED`
+status (in the same background task that advances the payment state machine).
 
 ---
 
@@ -311,13 +415,16 @@ payment.
 
 ## Interface Contract the Agent Depends On
 
-| Stage | Call | Purpose |
-|---|---|---|
-| Perceive | `GET /accounts` then `GET /accounts/{id}/balance` for each account | Reconcile bank balances against ERP cash positions |
-| Perceive | `GET /accounts/{id}/statement?fromDate=...&toDate=...` | Detect unreconciled large incoming transactions |
-| Reason | `GET /rates/deposits` | Feed optimizer's yield comparison |
-| Decide & Act | `POST /payments/initiate` | Execute approved proposal |
-| Report | `GET /payments/{id}/status` | Confirm execution before closing audit trail |
+| Stage | Call | Sampath API Reference | Purpose |
+|---|---|---|---|
+| Perceive | `GET /accounts` → `GET /accounts/{id}/balance` | `Acc_InqAccBalance` + `Acc_InqAvgAccBalance` | Reconcile bank balances; get average balance for yield calc |
+| Perceive | `GET /accounts/{id}/statement?fromDate=...&toDate=...` | `Tran_InqTransactionHistory` | Detect unreconciled large incoming transactions |
+| Perceive | **`GET /rates/forex`** | `Forex_GetAllCurrencyData` | Value FX-denominated obligations in LKR |
+| Perceive | **`GET /loans/{facilityId}`** | `Loan_InqFacilityDetails` | Live loan outstanding + rate type for optimizer hurdle rate |
+| Reason | `GET /rates/deposits` | *(modelled)* | Feed Sampath instrument rates into optimizer |
+| Decide & Act | `POST /payments/initiate` | `Tran_doCEFTSVCTran` / `Tran_doSLIPSSVCTran` | Execute approved proposal |
+| Report | `GET /payments/{id}/status` | `Inq_ShowPaymentStatusByTranID` | Confirm payment queued |
+| Report | **`GET /transactions?refId=`** | `Inq_inquireTranByRefId` | Confirm payment settled in ledger before closing audit trail |
 
 ---
 
@@ -396,14 +503,72 @@ async def test_payment_status_unknown_id_returns_404():
 #### 6. Deposit rates
 ```python
 async def test_deposit_rates_returns_all_instrument_types():
-    # Assert response has CALL_DEPOSIT and at least 3 FIXED_DEPOSIT tenors
+    # Assert response has CALL_DEPOSIT and at least 4 FIXED_DEPOSIT tenors
+    # Assert response has "bank": "SAMPATH"
 
 async def test_deposit_rates_fields_complete():
     # Assert each instrument has: type, termDays, rate
     # Assert rate values are sensible (0 < rate < 1)
 ```
 
-#### 7. Failure simulation
+#### 7. Forex rates
+```python
+async def test_forex_rates_returns_major_currencies():
+    # GET /rates/forex
+    # Assert USD, EUR, GBP are present in rates list
+
+async def test_forex_rate_fields_complete():
+    # Assert each entry has: currency, buyingRate, sellingRate, midRate
+    # Assert midRate == (buyingRate + sellingRate) / 2 (approximately)
+
+async def test_forex_rates_require_auth():
+    # GET /rates/forex without token — Assert 401
+```
+
+#### 8. Loan facility
+```python
+async def test_loan_facility_returns_correct_schema():
+    # GET /loans/LN-2024-0087
+    # Assert response has: facilityId, facilityType, outstandingPrincipal,
+    #   interestRate, rateType, benchmarkRate, spread, nextInstallmentDate
+
+async def test_loan_facility_floating_rate_has_benchmark():
+    # GET /loans/LN-2024-0087
+    # Assert rateType == "FLOATING"
+    # Assert benchmarkRate == "AWPLR"
+    # Assert spread is non-null
+
+async def test_loan_facility_unknown_id_returns_404():
+    # GET /loans/NONEXISTENT
+    # Assert 404 FACILITY_NOT_FOUND
+```
+
+#### 9. Transaction lookup by reference
+```python
+async def test_transaction_lookup_found_after_payment_executed():
+    # POST /payments/initiate → wait for EXECUTED status
+    # GET /transactions?refId={paymentId}
+    # Assert found == true, transaction.referenceId == paymentId
+
+async def test_transaction_lookup_not_found_for_unknown_ref():
+    # GET /transactions?refId=NONEXISTENT
+    # Assert found == false, transaction == null
+
+async def test_transaction_lookup_not_found_while_payment_pending():
+    # POST /payments/initiate
+    # Immediately GET /transactions?refId={paymentId} (before EXECUTED)
+    # Assert found == false
+```
+
+#### 10. Average balance
+```python
+async def test_balance_includes_average_balance_fields():
+    # GET /accounts/{id}/balance
+    # Assert response has: averageBalance, averagePeriodDays
+    # Assert averageBalance > 0
+```
+
+#### 11. Failure simulation
 ```python
 async def test_timeout_simulation_delays_response():
     # GET /accounts/{id}/balance?simulate=timeout
@@ -415,7 +580,7 @@ async def test_write_failure_simulation_returns_500():
     # Assert balance NOT changed (idempotent on error)
 ```
 
-#### 8. Accounts list
+#### 12. Accounts list
 ```python
 async def test_accounts_list_returns_seeded_accounts():
     # GET /accounts

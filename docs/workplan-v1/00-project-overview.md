@@ -155,6 +155,7 @@ Treasury Goal (config)
 | 5 | Agent Core (multi-agent graph) | 🔲 To build | `agent/` | `05-agent-core-reasoning-loop.md` |
 | 6 | HITL Approval Dashboard | 🔲 To build | `dashboard/` + `services/hitl-api/` | `06-hitl-approval-dashboard.md` |
 | 7 | Failure Handling & Resilience | 🔲 Cuts across all | Every service + agent | `07-failure-handling-resilience.md` |
+| 9 | Market Data Tool | 🔲 To build | `services/market-data/` | `09-market-data-tool.md` |
 
 ---
 
@@ -174,13 +175,26 @@ cashflow-copilot-agent/
 │   │   └── requirements.txt
 │   │
 │   ├── bank-mock/              # Component 2
-│   │   ├── main.py
-│   │   ├── schemas/entities.py
-│   │   ├── data/seed.py
-│   │   ├── state/account_state.py
-│   │   ├── tests/test_bank_mock.py
-│   │   └── requirements.txt
-│   │
+   │   ├── main.py
+   │   ├── schemas/entities.py
+   │   ├── data/seed.py
+   │   ├── state/account_state.py
+   │   ├── state/loan_state.py
+   │   ├── tests/test_bank_mock.py
+   │   └── requirements.txt
+   │
+   ├── market-data/            # Component 9
+   │   ├── main.py
+   │   ├── scrapers/
+   │   │   ├── sampath_scraper.py
+   │   │   ├── hnb_scraper.py
+   │   │   ├── combank_scraper.py
+   │   │   └── cbsl_scraper.py     # Selenium
+   │   ├── scheduler.py
+   │   ├── cache/rates_cache.json
+   │   ├── tests/test_market_data.py
+   │   └── requirements.txt
+   │
 │   ├── forecaster/             # Component 3
 │   │   ├── main.py
 │   │   ├── model/lstm.py
@@ -215,10 +229,11 @@ cashflow-copilot-agent/
 │   │   ├── decide.py
 │   │   └── report.py
 │   ├── tools/
-│   │   ├── erp_client.py
-│   │   ├── bank_client.py
-│   │   ├── forecast_client.py
-│   │   └── optimizer_client.py
+   │   ├── erp_client.py
+   │   ├── bank_client.py
+   │   ├── market_data_client.py   # Component 9 client
+   │   ├── forecast_client.py
+   │   └── optimizer_client.py
 │   ├── memory/
 │   │   ├── cache.py            # DataCache stale-data tracking
 │   │   └── feedback.py         # decision_log query layer
@@ -273,6 +288,8 @@ cashflow-copilot-agent/
 | LLM | **Gemini Flash** (free tier) | Used only for rationale generation, not control-flow decisions |
 | Forecasting | TensorFlow/Keras (LSTM) + rule-based stub | Stub de-risks build; LSTM is a drop-in upgrade |
 | Optimisation | `scipy.optimize.linprog` + greedy fallback | Small LP, explainable, greedy fallback if scipy unavailable |
+| Market data scraping | `httpx` + `BeautifulSoup` (banks) + Selenium (CBSL) | HTTP-first; Selenium only where JavaScript rendering required |
+| Market data scheduling | `APScheduler` | Lightweight in-process cron; no external queue needed |
 | Dashboard frontend | **React + Vite + TypeScript** | Enterprise-grade UI; Streamlit is prototype-only |
 | Dashboard backend | FastAPI + SSE/WebSocket | Real-time proposal delivery |
 | Data storage (decision log) | **SQLite** (dev) → **PostgreSQL** (prod) | Audit log persistence |
@@ -330,6 +347,7 @@ Update this table as components are completed:
 |---|---|---|---|---|
 | Mock SAP ERP | ✅ | ❌ | ❌ | ❌ (wrong path) |
 | Mock Bank API | ❌ | ❌ | ❌ | ❌ |
+| Market Data Tool | ❌ | ❌ | ❌ | ❌ |
 | Forecaster (stub) | ❌ | ❌ | ❌ | ❌ |
 | Forecaster (LSTM) | ❌ | ❌ | ❌ | ❌ |
 | Optimizer | ❌ | ❌ | ❌ | ❌ |
