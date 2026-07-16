@@ -188,3 +188,49 @@ def generate_all(fy_start: date | None = None) -> dict[str, list[dict]]:
         "loan_items": generate_loan_items(fy_start),
         "cash_positions": generate_cash_positions(),
     }
+
+
+def generate_historical_series(lookback_days: int = 90) -> list[dict]:
+    """Generates daily historical cash flow data for LSTM training/stub."""
+    end_date = date.today()
+    start_date = end_date - timedelta(days=lookback_days)
+    
+    series = []
+    # Start with a plausible opening balance
+    current_balance = Decimal("100000000.00") # 100M LKR
+    
+    # We'll use a seeded random for reproducible synthetic data
+    rng = random.Random(42)
+    
+    for i in range(lookback_days):
+        current_date = start_date + timedelta(days=i)
+        
+        # Seasonality: Lower inflows on Fridays (weekday 4), no outflows on weekends (5, 6)
+        weekday = current_date.weekday()
+        
+        # Base inflows ~ 2M to 10M
+        inflows = Decimal(rng.randrange(2_000_000, 10_000_000))
+        if weekday == 4:
+            inflows *= Decimal("0.6")
+        elif weekday in (5, 6):
+            inflows *= Decimal("0.1")
+            
+        # Base outflows ~ 1.5M to 9M
+        outflows = Decimal(rng.randrange(1_500_000, 9_000_000))
+        if weekday in (5, 6):
+            outflows = Decimal("0")
+            
+        closing_balance = current_balance + inflows - outflows
+        
+        series.append({
+            "date": current_date.isoformat(),
+            "opening_balance": str(current_balance),
+            "total_inflows": str(inflows),
+            "total_outflows": str(outflows),
+            "closing_balance": str(closing_balance),
+            "net_cash_flow": str(inflows - outflows),
+        })
+        
+        current_balance = closing_balance
+        
+    return series
