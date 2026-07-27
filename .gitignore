@@ -38,3 +38,7 @@ build/
 # Other
 .env
 data/data.jsonl
+
+docs\workplan-v1\11-runbook.md
+docs\agentic
+market-data-plan
