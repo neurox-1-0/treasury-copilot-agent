@@ -12,7 +12,7 @@ then must echo it back on the modifying request. We replicate this handshake.
 """
 
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import Header, HTTPException, Response
 
 
@@ -24,7 +24,7 @@ CSRF_TOKEN_TTL_MINUTES = 30
 
 def issue_csrf_token() -> str:
     token = secrets.token_urlsafe(24)
-    _csrf_tokens[token] = datetime.utcnow() + timedelta(minutes=CSRF_TOKEN_TTL_MINUTES)
+    _csrf_tokens[token] = datetime.now(timezone.utc) + timedelta(minutes=CSRF_TOKEN_TTL_MINUTES)
     return token
 
 
@@ -39,7 +39,7 @@ def validate_csrf_token(x_csrf_token: str | None = Header(None)) -> None:
             detail="CSRF token missing or invalid. Fetch one first via GET with "
                    "header 'X-CSRF-Token: Fetch' on any read endpoint.",
         )
-    if _csrf_tokens[x_csrf_token] < datetime.utcnow():
+    if _csrf_tokens[x_csrf_token] < datetime.now(timezone.utc):
         del _csrf_tokens[x_csrf_token]
         raise HTTPException(status_code=403, detail="CSRF token expired. Fetch a new one.")
 
