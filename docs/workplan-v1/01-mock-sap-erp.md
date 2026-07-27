@@ -1,12 +1,5 @@
 # Component 1: Mock SAP ERP
 
-**Status: Built — needs migration and tests before use.**
-
-> ⚠️ **Action required**: The code currently lives in `docs/sap/`. It must be moved
-> to `services/erp-mock/` and restructured per the layout below before any other
-> component can depend on it. Do not build the bank mock or agent against the
-> `docs/sap/` path — that location is temporary.
-
 ---
 
 ## Purpose
@@ -18,51 +11,6 @@ shapes, not a full ERP simulation.
 
 ---
 
-## Migration: From `docs/sap/` to `services/erp-mock/`
-
-```
-BEFORE (current, wrong):          AFTER (target):
-docs/
-  sap/                            services/
-    main.py              →          erp-mock/
-    entities.py          →            main.py
-    core.py              →            schemas/
-    metadata.py          →              entities.py
-    seed.py              →            odata/
-    README.md            →              core.py
-                                       metadata.py
-                                     data/
-                                       seed.py
-                                     tests/
-                                       test_erp_mock.py   ← NEW
-                                     requirements.txt     ← NEW
-```
-
-Migration steps:
-1. Create `services/erp-mock/` with the subdirectory structure above.
-2. Move files and update all `import` paths accordingly (e.g. `from data.seed import generate_all`).
-3. Create `requirements.txt` (see below).
-4. Verify `uvicorn main:app --reload --port 8001` from `services/erp-mock/` still works.
-5. Delete `docs/sap/` only after tests pass.
-
----
-
-## Canonical Location After Migration
-
-```
-services/erp-mock/
-├── main.py
-├── schemas/
-│   └── entities.py
-├── odata/
-│   ├── core.py
-│   └── metadata.py
-├── data/
-│   └── seed.py
-├── tests/
-│   └── test_erp_mock.py
-└── requirements.txt
-```
 
 **`requirements.txt`**:
 ```

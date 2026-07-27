@@ -148,14 +148,15 @@ Treasury Goal (config)
 
 | # | Component | Status | Location | Doc |
 |---|---|---|---|---|
-| 1 | Mock SAP ERP | ✅ Built (needs move + tests) | `docs/sap/` → **`services/erp-mock/`** | `01-mock-sap-erp.md` |
-| 2 | Mock Bank API | 🔲 To build | `services/bank-mock/` | `02-mock-sampath-bank-api.md` |
-| 3 | LSTM Forecasting Tool | 🔲 To build | `services/forecaster/` | `03-forecasting-tool-lstm.md` |
-| 4 | SciPy Optimizer Tool | 🔲 To build | `services/optimizer/` | `04-optimizer-tool-scipy.md` |
-| 5 | Agent Core (multi-agent graph) | 🔲 To build | `agent/` | `05-agent-core-reasoning-loop.md` |
-| 6 | HITL Approval Dashboard | 🔲 To build | `dashboard/` + `services/hitl-api/` | `06-hitl-approval-dashboard.md` |
-| 7 | Failure Handling & Resilience | 🔲 Cuts across all | Every service + agent | `07-failure-handling-resilience.md` |
-| 9 | Market Data Tool | 🔲 To build | `services/market-data/` | `09-market-data-tool.md` |
+| 1 | Mock SAP ERP | ✅ Built | `services/erp-mock/` | `01-mock-sap-erp.md` |
+| 2 | Mock Bank API | ✅ Built | `services/bank-mock/` | `02-mock-sampath-bank-api.md` |
+| 3 | LSTM Forecasting Tool | ✅ Built | `services/forecaster/` | `03-forecasting-tool-lstm.md` |
+| 4 | SciPy Optimizer Tool | ✅ Built | `services/optimizer/` | `04-optimizer-tool-scipy.md` |
+| 5 | Agent Core (multi-agent graph) | ✅ Built | `agent/` | `05-agent-core-reasoning-loop.md` |
+| 6 | HITL Approval Backend API | ✅ Built | `services/hitl-api/` | `06-hitl-approval-dashboard.md` |
+| 7 | Failure Handling & Resilience | ✅ Built | `agent/resilience.py` | `07-failure-handling-resilience.md` |
+| 8 | Governance & Security | ✅ Built | `services/hitl-api/auth/` | `10-governance-and-security.md` |
+| 9 | Market Data Tool | ✅ Built | `services/market-data/` | `09-market-data-tool.md` |
 
 ---
 
@@ -211,8 +212,9 @@ cashflow-copilot-agent/
 │   │   ├── tests/test_optimizer.py
 │   │   └── requirements.txt
 │   │
-│   └── hitl-api/               # Component 6 backend
+│   └── hitl-api/               # Component 6 backend & 8 (Governance)
 │       ├── main.py
+│       ├── auth/               # RBAC & JWT logic
 │       ├── schemas/proposals.py
 │       ├── db/models.py
 │       ├── tests/test_hitl_api.py
@@ -221,6 +223,7 @@ cashflow-copilot-agent/
 ├── agent/                      # Component 5 (the core)
 │   ├── graph.py                # LangGraph orchestration
 │   ├── state.py                # TreasuryState, ProposedAction Pydantic models
+│   ├── timeout_checker.py      # Background approval scanner
 │   ├── nodes/
 │   │   ├── perceive.py
 │   │   ├── reason.py
@@ -238,6 +241,7 @@ cashflow-copilot-agent/
 │   │   ├── cache.py            # DataCache stale-data tracking
 │   │   └── feedback.py         # decision_log query layer
 │   ├── db/audit_log.py
+│   ├── resilience.py           # Fallback, masking, & retry mechanisms
 │   ├── prompts/rationale.py
 │   ├── tests/
 │   │   ├── test_graph.py
@@ -285,14 +289,13 @@ cashflow-copilot-agent/
 |---|---|---|
 | Mock ERP / Bank API | Python + FastAPI + Pydantic | Consistent stack, OData v2 shapes |
 | Agent orchestration | **LangGraph** (Python) | Stateful graphs, subgraph support, traceable nodes |
-| LLM | **Gemini Flash** (free tier) | Used only for rationale generation, not control-flow decisions |
+| LLM | **Gemini (Configurable)** | Rationale generation (`GEMINI_MODEL` defaults to `gemini-2.0-flash`) |
 | Forecasting | TensorFlow/Keras (LSTM) + rule-based stub | Stub de-risks build; LSTM is a drop-in upgrade |
 | Optimisation | `scipy.optimize.linprog` + greedy fallback | Small LP, explainable, greedy fallback if scipy unavailable |
 | Market data scraping | `httpx` + `BeautifulSoup` (banks) + Selenium (CBSL) | HTTP-first; Selenium only where JavaScript rendering required |
-| Market data scheduling | `APScheduler` | Lightweight in-process cron; no external queue needed |
 | Dashboard frontend | **React + Vite + TypeScript** | Enterprise-grade UI; Streamlit is prototype-only |
-| Dashboard backend | FastAPI + SSE/WebSocket | Real-time proposal delivery |
-| Data storage (decision log) | **SQLite** (dev) → **PostgreSQL** (prod) | Audit log persistence |
+| Dashboard backend | FastAPI + Pure Python JWT | Pure Python auth without native crypto bloat |
+| Data storage (decision log) | **SQLite** (dev) / **PostgreSQL** (prod) | Seamless switching via `asyncpg` / `aiosqlite` & auto DB init |
 | Retry / resilience | `tenacity` | Clean retry-then-cache-then-flag pattern |
 | State management | Pydantic models at every node boundary | Traceable, testable, LLM hallucination-resistant |
 
@@ -345,12 +348,13 @@ Update this table as components are completed:
 
 | Component | Code Done | Tests Written | Tests Passing | Integrated |
 |---|---|---|---|---|
-| Mock SAP ERP | ✅ | ❌ | ❌ | ❌ (wrong path) |
-| Mock Bank API | ❌ | ❌ | ❌ | ❌ |
-| Market Data Tool | ❌ | ❌ | ❌ | ❌ |
-| Forecaster (stub) | ❌ | ❌ | ❌ | ❌ |
-| Forecaster (LSTM) | ❌ | ❌ | ❌ | ❌ |
-| Optimizer | ❌ | ❌ | ❌ | ❌ |
-| Agent Core | ❌ | ❌ | ❌ | ❌ |
-| HITL Dashboard | ❌ | ❌ | ❌ | ❌ |
-| Integration (full loop) | ❌ | ❌ | ❌ | — |
+| Mock SAP ERP | ✅ | ✅ | ✅ | ✅ |
+| Mock Bank API | ✅ | ✅ | ✅ | ✅ |
+| Market Data Tool | ✅ | ✅ | ✅ | ✅ |
+| Forecaster (stub) | ✅ | ✅ | ✅ | ✅ |
+| Forecaster (LSTM) | ✅ | ✅ | ✅ | ✅ |
+| Optimizer | ✅ | ✅ | ✅ | ✅ |
+| Agent Core | ✅ | ✅ | ✅ | ✅ |
+| HITL Dashboard | ✅ | ✅ | ✅ | ✅ |
+| Governance Module | ✅ | ✅ | ✅ | ✅ |
+| Integration (full loop) | ✅ | ✅ | ✅ | ✅ |
