@@ -1,0 +1,139 @@
+{
+  "_note": "Fallback seed cache \u2014 update monthly. Last updated: 2026-07-01.",
+  "quotes": [
+    {
+      "source": "SAMPATH",
+      "instrumentType": "FIXED_DEPOSIT",
+      "termDays": 30,
+      "rate": 0.11,
+      "currency": "LKR",
+      "effectiveDate": "2026-07-01",
+      "fetchedAt": "2026-07-01T08:00:00+00:00",
+      "entryMethod": "API"
+    },
+    {
+      "source": "SAMPATH",
+      "instrumentType": "FIXED_DEPOSIT",
+      "termDays": 90,
+      "rate": 0.12,
+      "currency": "LKR",
+      "effectiveDate": "2026-07-01",
+      "fetchedAt": "2026-07-01T08:00:00+00:00",
+      "entryMethod": "API"
+    },
+    {
+      "source": "BOC",
+      "instrumentType": "FIXED_DEPOSIT",
+      "termDays": 30,
+      "rate": 0.105,
+      "currency": "LKR",
+      "effectiveDate": "2026-07-01",
+      "fetchedAt": "2026-07-01T08:00:00+00:00",
+      "entryMethod": "SCRAPED"
+    },
+    {
+      "source": "BOC",
+      "instrumentType": "FIXED_DEPOSIT",
+      "termDays": 90,
+      "rate": 0.115,
+      "currency": "LKR",
+      "effectiveDate": "2026-07-01",
+      "fetchedAt": "2026-07-01T08:00:00+00:00",
+      "entryMethod": "SCRAPED"
+    },
+    {
+      "source": "SEYLAN",
+      "instrumentType": "FIXED_DEPOSIT",
+      "termDays": 30,
+      "rate": 0.1125,
+      "currency": "LKR",
+      "effectiveDate": "2026-07-01",
+      "fetchedAt": "2026-07-01T08:00:00+00:00",
+      "entryMethod": "SCRAPED"
+    },
+    {
+      "source": "SEYLAN",
+      "instrumentType": "FIXED_DEPOSIT",
+      "termDays": 90,
+      "rate": 0.121,
+      "currency": "LKR",
+      "effectiveDate": "2026-07-01",
+      "fetchedAt": "2026-07-01T08:00:00+00:00",
+      "entryMethod": "SCRAPED"
+    },
+    {
+      "source": "NDB",
+      "instrumentType": "FIXED_DEPOSIT",
+      "termDays": 30,
+      "rate": 0.108,
+      "currency": "LKR",
+      "effectiveDate": "2026-07-01",
+      "fetchedAt": "2026-07-01T08:00:00+00:00",
+      "entryMethod": "SCRAPED"
+    },
+    {
+      "source": "NDB",
+      "instrumentType": "FIXED_DEPOSIT",
+      "termDays": 90,
+      "rate": 0.118,
+      "currency": "LKR",
+      "effectiveDate": "2026-07-01",
+      "fetchedAt": "2026-07-01T08:00:00+00:00",
+      "entryMethod": "SCRAPED"
+    },
+    {
+      "source": "CBSL",
+      "instrumentType": "POLICY_RATE",
+      "termDays": 1,
+      "rate": 0.0875,
+      "currency": "LKR",
+      "effectiveDate": "2026-07-01",
+      "fetchedAt": "2026-07-01T08:00:00+00:00",
+      "entryMethod": "SCRAPED"
+    },
+    {
+      "source": "CBSL",
+      "instrumentType": "INFLATION",
+      "termDays": 0,
+      "rate": 0.068,
+      "currency": "LKR",
+      "effectiveDate": "2026-07-01",
+      "fetchedAt": "2026-07-01T08:00:00+00:00",
+      "entryMethod": "SCRAPED"
+    },
+    {
+      "source": "CBSL",
+      "instrumentType": "FOREX",
+      "termDays": 0,
+      "rate": 331.6265,
+      "currency": "USD",
+      "effectiveDate": "2026-07-01",
+      "fetchedAt": "2026-07-01T08:00:00+00:00",
+      "entryMethod": "SCRAPED",
+      "metadata": {
+        "buy": "331.6265",
+        "sell": "340.7938"
+      }
+    },
+    {
+      "source": "COMBANK",
+      "instrumentType": "FIXED_DEPOSIT",
+      "termDays": 30,
+      "rate": 0.115,
+      "currency": "LKR",
+      "effectiveDate": null,
+      "fetchedAt": "2026-07-26T18:26:26.114058+00:00",
+      "entryMethod": "MANUAL",
+      "enteredBy": "analyst_test",
+      "metadata": {}
+    }
+  ],
+  "lastRefreshAttempt": "2026-07-01T08:00:00+00:00",
+  "lastRefreshSuccessBySource": {
+    "SAMPATH": "2026-07-01T08:00:00+00:00",
+    "BOC": "2026-07-01T08:00:00+00:00",
+    "SEYLAN": "2026-07-01T08:00:00+00:00",
+    "NDB": "2026-07-01T08:00:00+00:00",
+    "CBSL": "2026-07-01T08:00:00+00:00"
+  }
+}
